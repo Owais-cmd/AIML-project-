@@ -4,42 +4,46 @@ from tensorflow.keras import layers, Model
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
+from keras.models import load_model
 
-def build_fast_unet():
-    inputs = layers.Input((96, 96, 3))
 
-    # ENCODER
-    c1 = layers.Conv2D(32, 3, activation="relu", padding="same")(inputs)
-    p1 = layers.MaxPooling2D(2)(c1)   # 48x48
 
-    c2 = layers.Conv2D(64, 3, activation="relu", padding="same")(p1)
-    p2 = layers.MaxPooling2D(2)(c2)   # 24x24
+def conv_block(x, filters):
+    x = layers.Conv2D(filters, 3, padding="same")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    return x
 
-    c3 = layers.Conv2D(128, 3, activation="relu", padding="same")(p2)
-    p3 = layers.MaxPooling2D(2)(c3)   # 12x12
+def encoder_block(x, filters):
+    s = conv_block(x, filters)
+    p = layers.MaxPool2D()(s)
+    return s, p
 
-    # Bottleneck
-    b = layers.Conv2D(128, 3, activation="relu", padding="same")(p3)
+def decoder_block(x, skip, filters):
+    x = layers.Conv2DTranspose(filters, 3, strides=2, padding="same")(x)
+    x = layers.Concatenate()([x, skip])
+    x = conv_block(x, filters)
+    return x
 
-    # DECODER
-    u1 = layers.Conv2DTranspose(128, 3, strides=2, padding="same")(b)  # 24x24
-    u1 = layers.Concatenate()([u1, c3])
-    u1 = layers.Conv2D(128, 3, activation="relu", padding="same")(u1)
+def build_unet(input_shape=(96,96,3), base=32):
+    inputs = layers.Input(input_shape)
 
-    u2 = layers.Conv2DTranspose(64, 3, strides=2, padding="same")(u1)  # 48x48
-    u2 = layers.Concatenate()([u2, c2])
-    u2 = layers.Conv2D(64, 3, activation="relu", padding="same")(u2)
+    s1, p1 = encoder_block(inputs, base)
+    s2, p2 = encoder_block(p1, base*2)
+    s3, p3 = encoder_block(p2, base*4)
 
-    u3 = layers.Conv2DTranspose(32, 3, strides=2, padding="same")(u2)  # 96x96
-    u3 = layers.Concatenate()([u3, c1])
-    u3 = layers.Conv2D(32, 3, activation="relu", padding="same")(u3)
+    b = conv_block(p3, base*8)
+    b = conv_block(b, base*8)
 
-    outputs = layers.Conv2D(3, 3, activation="sigmoid", padding="same")(u3)
+    d3 = decoder_block(b, s3, base*4)
+    d2 = decoder_block(d3, s2, base*2)
+    d1 = decoder_block(d2, s1, base)
 
+    outputs = layers.Conv2D(3, 1, activation="sigmoid")(d1)
     return Model(inputs, outputs)
 
-model = build_fast_unet()
-model.load_weights('autoencoder_4.weights.h5')
+model = build_unet()
+model = load_model("./AIML_5/models/final_unet_denoiser.keras")
 
 #frontend 
 st.title("Image Upload & Model Prediction Demo")
