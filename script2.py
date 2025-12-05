@@ -3,11 +3,9 @@ import tensorflow as tf
 from tensorflow.keras import layers, Model
 import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
 from keras.models import load_model
 
-
-
+# --- U-Net Model Definition (Same as before) ---
 def conv_block(x, filters):
     x = layers.Conv2D(filters, 3, padding="same")(x)
     x = layers.BatchNormalization()(x)
@@ -27,60 +25,71 @@ def decoder_block(x, skip, filters):
 
 def build_unet(input_shape=(96,96,3), base=32):
     inputs = layers.Input(input_shape)
-
     s1, p1 = encoder_block(inputs, base)
     s2, p2 = encoder_block(p1, base*2)
     s3, p3 = encoder_block(p2, base*4)
-
     b = conv_block(p3, base*8)
     b = conv_block(b, base*8)
-
     d3 = decoder_block(b, s3, base*4)
     d2 = decoder_block(d3, s2, base*2)
     d1 = decoder_block(d2, s1, base)
-
     outputs = layers.Conv2D(3, 1, activation="sigmoid")(d1)
     return Model(inputs, outputs)
 
-model = build_unet()
+# --- Load Model ---
+# Note: You generally don't need to 'build' it first if loading the full model
 model = load_model("./AIML_5/models/final_unet_denoiser.keras")
 
-#frontend 
-st.title("Image Upload & Model Prediction Demo")
-uploaded1_file = st.file_uploader("Upload Original image", type=["jpg", "jpeg", "png"])
+# --- Frontend ---
+st.title("Image Denoising Demo")
 
-# Show the original image
-if uploaded1_file is not None:
-    image1 = Image.open(uploaded1_file)
-    st.subheader("Original Image")
-    st.image(image1, use_column_width=True)
+# Create two columns for the file uploaders
+upload_col1, upload_col2 = st.columns(2)
 
+with upload_col1:
+    uploaded_original = st.file_uploader("Upload Original Image", type=["jpg", "jpeg", "png"])
 
-uploaded_file = st.file_uploader("Upload noised image", type=["jpg", "jpeg", "png"])
+with upload_col2:
+    uploaded_noisy = st.file_uploader("Upload Noisy Image", type=["jpg", "jpeg", "png"])
 
-if uploaded_file is not None:
-    # Read image using PIL
-    image = Image.open(uploaded_file)
-
-    # Show the original image
-    st.subheader("Noised Image")
-    st.image(image, use_column_width=True)
-
-    # Convert to numpy array
-    image_array = np.array(image)/255.0
-
-    st.write("Denoised Image")
-    st.write("**Array Shape:**", image_array.shape)
-     # prints array values
-
-    # Predict (pass to model)
-    predicted_array = model.predict( np.expand_dims(image_array, axis=0))
-    st.write(predicted_array.shape)
+# Logic to display images
+if uploaded_noisy is not None:
+    # Process the noisy image
+    image_noisy = Image.open(uploaded_noisy)
+    # Resize if needed to match model input (96x96), optional but recommended
+    # image_noisy = image_noisy.resize((96, 96)) 
     
+    image_array = np.array(image_noisy) / 255.0
+    
+    # Predict
+    predicted_array = model.predict(np.expand_dims(image_array, axis=0))
     predicted_image = predicted_array.squeeze()
     predicted_image = np.clip(predicted_image * 255, 0, 255).astype('uint8')
-    
+    predicted_pil = Image.fromarray(predicted_image)
 
-    # Show the result image
-    st.subheader("Predicted Output")
-    st.image(predicted_image, use_column_width=True)
+    # --- DISPLAY SIDE BY SIDE ---
+    st.markdown("### Results")
+    
+    # Create 3 columns: Original | Noisy | Denoised
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.caption("Original Image")
+        if uploaded_original is not None:
+            image_orig = Image.open(uploaded_original)
+            st.image(image_orig, use_container_width=True)
+        else:
+            st.info("Not uploaded")
+
+    with col2:
+        st.caption("Noisy Input")
+        st.image(image_noisy, use_container_width=True)
+
+    with col3:
+        st.caption("Denoised Output")
+        st.image(predicted_pil, use_container_width=True)
+        
+    # Optional debug info below the images
+    with st.expander("Debug Information"):
+        st.write(f"Input Shape: {image_array.shape}")
+        st.write(f"Output Shape: {predicted_array.shape}")
